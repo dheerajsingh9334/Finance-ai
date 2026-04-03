@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  VIEWER
+  ANALYST
+  ADMIN
+}
+
+enum RecordType {
+  INCOME
+  EXPENSE
+}
+
+enum JobStatus {
+  PENDING
+  PROCESSING
+  DONE
+  FAILED
+}
+
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  password  String
+  name      String
+  phone     String?
+  avatarUrl String?
+  role      Role      @default(VIEWER)
+  isActive  Boolean   @default(true)
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  records   FinancialRecord[]
+  exportJobs ExportJob[]
+}
+
+model FinancialRecord {
+  id          String     @id @default(uuid())
+  amount      Decimal    @db.Decimal(12, 2)
+  type        RecordType
+  category    String
+  date        DateTime
+  notes       String?
+  deletedAt   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  createdBy   User       @relation(fields: [createdById], references: [id])
+  createdById String
+}
+
+model ExportJob {
+  id          String    @id @default(uuid())
+  status      JobStatus @default(PENDING)
+  filters     Json
+  fileUrl     String?
+  errorMsg    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  requestedBy   User   @relation(fields: [requestedById], references: [id])
+  requestedById String
+}
