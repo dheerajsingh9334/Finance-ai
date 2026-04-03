@@ -152,6 +152,34 @@ npm run dev
 - `PATCH /api/records/:id/restore` (admin)
 - `GET /api/records/search` (AI search on records module)
 
+### Allowed Values For Records
+
+- Type:
+  - `INCOME`
+  - `EXPENSE`
+- Category:
+  - `Salary`
+  - `Freelance`
+  - `Investment`
+  - `Rent`
+  - `Food`
+  - `Transport`
+  - `Utilities`
+  - `Entertainment`
+  - `Healthcare`
+  - `Shopping`
+
+If you send an invalid `type` or `category` in Postman, the API returns HTTP 422 with a validation message.
+
+Example invalid category response:
+
+```json
+{
+  "success": false,
+  "error": "Validation Error: category: Invalid category. Allowed values: Salary, Freelance, Investment, Rent, Food, Transport, Utilities, Entertainment, Healthcare, Shopping"
+}
+```
+
 ### Dashboard
 
 - `GET /api/dashboard/summary`

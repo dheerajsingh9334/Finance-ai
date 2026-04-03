@@ -1,10 +1,36 @@
 import { z } from "zod";
 import { RecordType } from "@prisma/client";
 
+export const ALLOWED_RECORD_TYPES = ["INCOME", "EXPENSE"] as const;
+
+export const ALLOWED_CATEGORIES = [
+  "Salary",
+  "Freelance",
+  "Investment",
+  "Rent",
+  "Food",
+  "Transport",
+  "Utilities",
+  "Entertainment",
+  "Healthcare",
+  "Shopping",
+] as const;
+
+const categorySchema = z
+  .string()
+  .trim()
+  .refine(
+    (value) =>
+      ALLOWED_CATEGORIES.includes(value as (typeof ALLOWED_CATEGORIES)[number]),
+    {
+      message: `Invalid category. Allowed values: ${ALLOWED_CATEGORIES.join(", ")}`,
+    },
+  );
+
 export const createRecordSchema = z.object({
   amount: z.number().positive(),
   type: z.nativeEnum(RecordType),
-  category: z.string().min(1).max(100),
+  category: categorySchema,
   date: z
     .string()
     .datetime()
@@ -16,7 +42,7 @@ export const updateRecordSchema = createRecordSchema.partial();
 
 export const listRecordsSchema = z.object({
   type: z.nativeEnum(RecordType).optional(),
-  category: z.string().optional(),
+  category: categorySchema.optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
   page: z.coerce.number().default(1),

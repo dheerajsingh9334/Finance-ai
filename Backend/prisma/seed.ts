@@ -3,29 +3,55 @@ import bcrypt from "bcrypt";
 
 const prisma = new PrismaClient();
 
+const ALLOWED_CATEGORIES = [
+  "Salary",
+  "Freelance",
+  "Investment",
+  "Rent",
+  "Food",
+  "Transport",
+  "Utilities",
+  "Entertainment",
+  "Healthcare",
+  "Shopping",
+] as const;
+
 async function main() {
   const password = await bcrypt.hash("Password@123456", 10);
 
   const admin = await prisma.user.upsert({
     where: { email: "admin@finance.com" },
     update: {},
-    create: { email: "admin@finance.com", password, name: "Admin", role: Role.ADMIN },
+    create: {
+      email: "admin@finance.com",
+      password,
+      name: "Admin",
+      role: Role.ADMIN,
+    },
   });
 
   await prisma.user.upsert({
     where: { email: "analyst@finance.com" },
     update: {},
-    create: { email: "analyst@finance.com", password, name: "Analyst", role: Role.ANALYST },
+    create: {
+      email: "analyst@finance.com",
+      password,
+      name: "Analyst",
+      role: Role.ANALYST,
+    },
   });
 
   await prisma.user.upsert({
     where: { email: "viewer@finance.com" },
     update: {},
-    create: { email: "viewer@finance.com", password, name: "Viewer", role: Role.VIEWER },
+    create: {
+      email: "viewer@finance.com",
+      password,
+      name: "Viewer",
+      role: Role.VIEWER,
+    },
   });
 
-  const categories = ["Salary", "Rent", "Food", "Transport", "Utilities", "Freelance", "Investment", "Entertainment", "Healthcare", "Shopping"];
-  
   const records = Array.from({ length: 30 }).map((_, i) => {
     // Inject anomalies manually based on requirements
     if (i === 15) {
@@ -38,7 +64,7 @@ async function main() {
         notes: "Intentional massive anomaly",
       };
     }
-    
+
     if (i === 16 || i === 17) {
       return {
         amount: 550,
@@ -57,7 +83,10 @@ async function main() {
     return {
       amount: Math.floor(Math.random() * 5000) + 50,
       type,
-      category: categories[Math.floor(Math.random() * categories.length)],
+      category:
+        ALLOWED_CATEGORIES[
+          Math.floor(Math.random() * ALLOWED_CATEGORIES.length)
+        ],
       date: pastDate,
       createdById: admin.id,
     };

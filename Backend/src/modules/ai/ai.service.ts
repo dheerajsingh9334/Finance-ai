@@ -20,6 +20,14 @@ interface QueryRecord {
   date: Date;
 }
 
+interface AnomalyRecord {
+  amount: number;
+  category: string;
+  type: string;
+  date: Date;
+  notes: string | null;
+}
+
 const monthLabel = (date: Date) =>
   date.toLocaleString("en-US", {
     month: "long",
@@ -42,6 +50,15 @@ const getLastNMonthsRange = (date: Date, months: number) => {
   const to = new Date(
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0, 23, 59, 59, 999),
   );
+  return { from, to };
+};
+
+const getLastNDaysRange = (date: Date, days: number) => {
+  const to = new Date(date);
+  to.setUTCHours(23, 59, 59, 999);
+  const from = new Date(date);
+  from.setUTCDate(from.getUTCDate() - (days - 1));
+  from.setUTCHours(0, 0, 0, 0);
   return { from, to };
 };
 
@@ -76,6 +93,71 @@ const tryDirectAnswer = (
   const normalized = question.toLowerCase();
   const expenseRecords = records.filter((r) => r.type === "EXPENSE");
   const now = new Date();
+
+  const asksTrendComparison =
+    /compare.*trend|trend.*compare|top changes?|changes?.*categories?|category.*changes?/.test(
+      normalized,
+    );
+  if (asksTrendComparison) {
+    const daysMatch = normalized.match(/last\s+(\d+)\s+days?/);
+    const days = Math.min(Math.max(Number(daysMatch?.[1] ?? 7), 1), 30);
+
+    const current = getLastNDaysRange(now, days);
+    const previousEnd = new Date(current.from);
+    previousEnd.setUTCDate(previousEnd.getUTCDate() - 1);
+    previousEnd.setUTCHours(23, 59, 59, 999);
+    const previousStart = new Date(previousEnd);
+    previousStart.setUTCDate(previousStart.getUTCDate() - (days - 1));
+    previousStart.setUTCHours(0, 0, 0, 0);
+
+    const currentByCategory = new Map<string, number>();
+    const previousByCategory = new Map<string, number>();
+
+    for (const record of expenseRecords) {
+      if (inRange(record.date, current.from, current.to)) {
+        currentByCategory.set(
+          record.category,
+          (currentByCategory.get(record.category) ?? 0) + record.amount,
+        );
+      } else if (inRange(record.date, previousStart, previousEnd)) {
+        previousByCategory.set(
+          record.category,
+          (previousByCategory.get(record.category) ?? 0) + record.amount,
+        );
+      }
+    }
+
+    const categories = new Set([
+      ...currentByCategory.keys(),
+      ...previousByCategory.keys(),
+    ]);
+
+    if (categories.size === 0) {
+      return `No expense records were found for the last ${days} days or the previous ${days}-day window, so trend changes cannot be computed.`;
+    }
+
+    const changes = Array.from(categories)
+      .map((category) => {
+        const currentTotal = currentByCategory.get(category) ?? 0;
+        const previousTotal = previousByCategory.get(category) ?? 0;
+        const delta = currentTotal - previousTotal;
+        return { category, currentTotal, previousTotal, delta };
+      })
+      .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+      .slice(0, 3);
+
+    const lines = changes.map((item, index) => {
+      const direction =
+        item.delta > 0
+          ? `increased by ${item.delta}`
+          : item.delta < 0
+            ? `decreased by ${Math.abs(item.delta)}`
+            : "stayed unchanged";
+      return `${index + 1}. ${item.category}: ${direction} (current ${days} days: ${item.currentTotal}, previous ${days} days: ${item.previousTotal}).`;
+    });
+
+    return `Top spending changes over the last ${days} days compared with the previous ${days}-day window:\n${lines.join("\n")}`;
+  }
 
   const asksHighestExpense =
     /highest\s+expense|most\s+expensive|biggest\s+expense/.test(normalized);
@@ -162,6 +244,102 @@ const ensureCoherentQueryAnswer = (
   return normalized;
 };
 
+const buildRuleBasedAnomalySummary = (records: AnomalyRecord[]): string => {
+  const expenses = records.filter((r) => r.type === "EXPENSE");
+  if (expenses.length === 0) {
+    return "No clear anomalies detected from the provided records.";
+  }
+
+  const sortedAmounts = expenses.map((r) => r.amount).sort((a, b) => a - b);
+  const mid = Math.floor(sortedAmounts.length / 2);
+  const median =
+    sortedAmounts.length % 2 === 0
+      ? (sortedAmounts[mid - 1] + sortedAmounts[mid]) / 2
+      : sortedAmounts[mid];
+
+  const spikeThreshold = Math.max(median * 3, 2000);
+  const spikes = expenses
+    .filter((r) => r.amount >= spikeThreshold)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 2);
+
+  const sameDayByAmount = new Map<string, AnomalyRecord[]>();
+  for (const entry of expenses) {
+    const day = entry.date.toISOString().slice(0, 10);
+    const key = `${day}:${entry.amount}`;
+    const bucket = sameDayByAmount.get(key) ?? [];
+    bucket.push(entry);
+    sameDayByAmount.set(key, bucket);
+  }
+
+  const duplicatePattern = Array.from(sameDayByAmount.values()).find(
+    (items) =>
+      items.length >= 2 && new Set(items.map((i) => i.category)).size >= 2,
+  );
+
+  const lines: string[] = [];
+
+  if (spikes.length > 0) {
+    const top = spikes[0];
+    lines.push(
+      `1. High-value spike detected: ${top.amount} in ${top.category} on ${top.date.toISOString().slice(0, 10)}, which is significantly above the typical expense median (${median.toFixed(2)}).`,
+    );
+  }
+
+  if (duplicatePattern) {
+    const sample = duplicatePattern[0];
+    lines.push(
+      `2. Same-day duplicate amount pattern detected: ${duplicatePattern.length} expense entries of ${sample.amount} on ${sample.date.toISOString().slice(0, 10)} across multiple categories.`,
+    );
+  }
+
+  if (spikes.length > 1) {
+    const second = spikes[1];
+    lines.push(
+      `3. Additional unusual expense observed: ${second.amount} in ${second.category} on ${second.date.toISOString().slice(0, 10)}; review supporting notes/receipts for confirmation.`,
+    );
+  }
+
+  if (lines.length === 0) {
+    return "No clear anomalies detected from the provided records.";
+  }
+
+  return lines.join("\n");
+};
+
+const ensureCoherentAnomalyAnswer = (
+  answer: string,
+  records: AnomalyRecord[],
+): string => {
+  const normalized = answer.trim();
+  if (!normalized) {
+    return buildRuleBasedAnomalySummary(records);
+  }
+
+  const danglingEnding =
+    /\b(your|the|a|an|to|of|for|with|and|or|but)\.$/i.test(normalized) ||
+    /:\.$/.test(normalized);
+  const unfinishedListTail = /(?:^|\n)\s*\d+\.$/.test(normalized);
+  const tooShort = normalized.length < 40;
+
+  if (danglingEnding || unfinishedListTail || tooShort) {
+    return buildRuleBasedAnomalySummary(records);
+  }
+
+  return normalized;
+};
+
+const isUsableAnomalyText = (text: string): boolean => {
+  const normalized = text.trim();
+  if (normalized.length < 40) return false;
+  if (/\b(your|the|a|an|to|of|for|with|and|or|but)\.$/i.test(normalized)) {
+    return false;
+  }
+  if (/:\.$/.test(normalized)) return false;
+  if (/(?:^|\n)\s*\d+\.$/.test(normalized)) return false;
+  return true;
+};
+
 export class AiService {
   static async getSpendingInsights(user: Requester, months: number) {
     const cacheKey = `ai:insights:${user.role}:${user.userId}:${months}`;
@@ -228,7 +406,7 @@ export class AiService {
   static async detectAnomalies(user: Requester) {
     const cacheKey = `ai:anomalies:${user.role}:${user.userId}`;
     const cachedAnomalies = await cache.get<string>(cacheKey);
-    if (cachedAnomalies) {
+    if (cachedAnomalies && isUsableAnomalyText(cachedAnomalies)) {
       return {
         anomalies: cachedAnomalies,
         checkedRecords: -1,
@@ -254,7 +432,7 @@ export class AiService {
       orderBy: { date: "desc" },
     });
 
-    const parsedRecords = records.map((r) => ({
+    const parsedRecords: AnomalyRecord[] = records.map((r) => ({
       ...r,
       amount: r.amount.toNumber(),
     }));
@@ -265,10 +443,15 @@ export class AiService {
       360,
     );
 
-    await cache.set(cacheKey, answer, env.AI_ANOMALIES_CACHE_TTL);
+    const safeAnomalyAnswer = ensureCoherentAnomalyAnswer(
+      answer,
+      parsedRecords,
+    );
+
+    await cache.set(cacheKey, safeAnomalyAnswer, env.AI_ANOMALIES_CACHE_TTL);
 
     return {
-      anomalies: answer,
+      anomalies: safeAnomalyAnswer,
       checkedRecords: records.length,
     };
   }
