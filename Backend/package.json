@@ -2,11 +2,11 @@
   "name": "finance-backend",
   "version": "1.0.0",
   "description": "Production-grade Finance Dashboard Backend API",
-  "main": "dist/app.js",
+  "main": "dist/src/app.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/app.ts",
     "build": "tsc",
-    "start": "node dist/app.js",
+    "start": "node dist/src/app.js",
     "db:studio": "prisma studio"
   },
   "dependencies": {
