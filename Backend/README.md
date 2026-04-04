@@ -82,6 +82,37 @@ cp .env.example .env
 npm run dev
 ```
 
+## Docker Setup
+
+Run the API, PostgreSQL, and Redis with Docker Compose:
+
+1. Create `.env` from `.env.example` if you do not already have one.
+2. Start containers:
+
+```bash
+docker compose up --build -d
+```
+
+3. Check logs:
+
+```bash
+docker compose logs -f app
+```
+
+4. Stop containers:
+
+```bash
+docker compose down
+```
+
+Notes:
+
+1. The `app` service runs Prisma migrations on startup using `npx prisma migrate deploy`.
+2. In Docker, service-to-service URLs are overridden automatically:
+
+- `DATABASE_URL=postgresql://user:password@postgres:5432/finance_db`
+- `REDIS_URL=redis://redis:6379`
+
 ## Environment Variables
 
 ### Required
